@@ -19,28 +19,29 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
-
-import com.google.common.base.Splitter;
-
-import com.google.common.collect.Maps;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 import org.apache.velocity.VelocityContext;
-
 import org.apache.velocity.app.VelocityEngine;
-
 import org.dishevelled.commandline.ArgumentList;
 import org.dishevelled.commandline.CommandLine;
 import org.dishevelled.commandline.CommandLineParseException;
 import org.dishevelled.commandline.CommandLineParser;
 import org.dishevelled.commandline.Switch;
 import org.dishevelled.commandline.Usage;
-
 import org.dishevelled.commandline.argument.FileArgument;
 import org.dishevelled.commandline.argument.StringArgument;
+
+import com.google.common.base.Splitter;
+import com.google.common.collect.Maps;
 
 /**
  * Command line interface to Apache Velocity.
@@ -75,6 +76,25 @@ public final class VelocityCommandLine implements Runnable {
         this.outputFile = outputFile;
 
         velocityContext = new VelocityContext(Maps.newHashMap(Splitter.on(",").withKeyValueSeparator("=").split(context)));
+
+        velocityEngine = new VelocityEngine();
+        //Velocity.setProperty(Velocity.RUNTIME_LOG_LOGSYSTEM, this);
+        velocityEngine.init();
+    }
+    
+    /**
+     * Create a new command line interface to Apache Velocity.
+     *
+     * @param context context, must not be null
+     * @param templateFile input template file
+     * @param outputFile output file
+     */
+    public VelocityCommandLine(final Map context, final File templateFile, final File outputFile) {
+        checkNotNull(context);
+        this.templateFile = templateFile;
+        this.outputFile = outputFile;
+
+        velocityContext = new VelocityContext(context);
 
         velocityEngine = new VelocityEngine();
         //Velocity.setProperty(Velocity.RUNTIME_LOG_LOGSYSTEM, this);
@@ -115,8 +135,10 @@ public final class VelocityCommandLine implements Runnable {
         StringArgument context = new StringArgument("c", "context", "context as comma-separated key value pairs", true);
         FileArgument templateFile = new FileArgument("t", "template", "template file", true);
         FileArgument outputFile = new FileArgument("o", "output", "output file, default stdout", false);
+        
+        FileArgument propertiesFile = new FileArgument("p", "properties", "context in a properties file", false);
 
-        ArgumentList arguments = new ArgumentList(about, help, context, templateFile, outputFile);
+        ArgumentList arguments = new ArgumentList(about, help, context, templateFile, outputFile, propertiesFile);
         CommandLine commandLine = new CommandLine(args);
         try
         {
@@ -129,7 +151,20 @@ public final class VelocityCommandLine implements Runnable {
                 Usage.usage(USAGE, null, commandLine, arguments, System.out);
                 System.exit(-2);
             }
-            new VelocityCommandLine(context.getValue(), templateFile.getValue(), outputFile.getValue()).run();
+            
+            System.out.println("PROP FOUND: " + propertiesFile.getValue());
+            
+            if(propertiesFile.wasFound()) {
+            	Properties contextProperties = new Properties();
+            	contextProperties.load(new FileInputStream(propertiesFile.getValue()));
+            	
+            	Map contextMap = new HashMap(contextProperties);
+            	contextMap.put("context", contextProperties);
+            	
+            	new VelocityCommandLine(contextMap, templateFile.getValue(), outputFile.getValue()).run();
+            } else {
+            	new VelocityCommandLine(context.getValue(), templateFile.getValue(), outputFile.getValue()).run();
+            }
         }
         catch (CommandLineParseException e) {
             if (about.wasFound()) {
@@ -146,6 +181,13 @@ public final class VelocityCommandLine implements Runnable {
         catch (IllegalArgumentException e) {
             Usage.usage(USAGE, e, commandLine, arguments, System.err);
             System.exit(-1);
-        }
+        } 
+        catch (FileNotFoundException e) {
+        	Usage.usage(USAGE, e, commandLine, arguments, System.err);
+            System.exit(-1);
+		} catch (IOException e) {
+			Usage.usage(USAGE, e, commandLine, arguments, System.err);
+            System.exit(-1);
+		}
     }
 }
